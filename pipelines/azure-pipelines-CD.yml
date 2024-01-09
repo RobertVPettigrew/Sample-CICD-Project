@@ -1,0 +1,53 @@
+resources:
+  pipelines:
+  - pipeline: MyCIAlias
+    source: Farbrikam-CI
+    trigger:
+
+    ## Deploy only on main
+    ## Enure branch triggers are enforced via main
+    ## Run Pre-Production Deployment
+          - task: ArchiveFiles@2
+        inputs:
+          rootFolderOrFile: '$(Build.SourcesDirectory)/src'
+          includeRootFolder: true
+          archiveType: 'zip'
+          archiveFile: '$(System.DefaultWorkingDirectory)/$(Build.BuildId).zip'
+          replaceExistingArchive: true
+
+      - task: AzureWebApp@1
+        inputs:
+          azureSubscription: 'Development-auseast'
+          appType: 'webAppLinux'
+          appName: 'webapp8999'
+          package: '$(System.DefaultWorkingDirectory)/$(Build.BuildId).zip'
+          runtimeStack: 'NODE|16-lts'
+
+    ### PRE PRODUCTION
+    ## Configure environment
+    ## Package Code
+    ## Deploy Code
+    ## Health Check -m Preview
+    ## Slot swap
+    ## Test Deployment
+    ## Report Testing results
+    ## Clean up and mark stage complete
+    
+    ### UAT
+    ## Configure environment
+    ## Package Code
+    ## Deploy Code
+    ## Health Check -m Preview
+    ## Slot swap
+    ## Check and test deployment
+    ## Report Testing results
+    ## Clean up and mark stage complete
+
+    ### PRODUCTION
+    ## Configure environment
+    ## Package Code
+    ## Deploy Code
+    ## Health Check -m Preview
+    ## Slot swap
+    ## Final Health Check
+    ## Clean up and mark stage complete

@@ -1,0 +1,135 @@
+pool:
+  vmImage: "ubuntu-latest"
+stages:
+  - stage: CI
+    jobs:
+      - job: Configure_CI_Env
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSpec: "16.x"
+            displayName: "Install Node.js"
+          - task: Npm@1
+            displayName: Restore
+            inputs:
+              command: "install"
+              workingDir: "$(Build.SourcesDirectory)/src"
+          - task: SnykSecurityScan@1
+            inputs:
+              serviceConnectionEndpoint: 'Snyk Scan'
+              testType: 'app'
+              severityThreshold: 'low'
+              monitorWhen: 'always'
+              failOnIssues: true
+              projectName: 'WYWM'
+              organization: 'rpettigrew'
+            displayName: Secuity Scan
+      - job: Run_Unit_Test
+        dependsOn: Configure_CI_Env
+        steps:
+          - task: PowerShell@2
+            inputs:
+              targetType: inline
+              script: |
+                npm start &
+                $(Build.SourcesDirectory)/scripts/check-health.ps1 -siteUrl 'http://localhost:3000' -siteWarmUpTime 30 -SiteProbeCoolDown 1
+                exit
+              workingDirectory: "$(Build.SourcesDirectory)/src"
+              failOnStderr: true
+            displayName: Run and Test
+          - task: PublishPipelineArtifact@1
+            condition: succeeded()
+            inputs:
+              targetPath: '$(Build.SourcesDirectory)'
+              artifact: '$(Build.BuildNumber)'
+              publishLocation: 'pipeline'
+
+  - stage: PreProd
+    dependsOn: CI
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - deployment: Configure_PreProd_Env
+        pool:
+          vmImage: "Ubuntu-latest"
+        # creates an environment if it doesn't exist
+        environment: PreProd
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: NodeTool@0
+                  inputs:
+                    versionSpec: "16.x"
+                  displayName: "Install Node.js"
+                - task: DownloadPipelineArtifact@2
+                  inputs:
+                    buildType: 'current'
+                    artifactName: '$(Build.BuildNumber)'
+                    targetPath: '$(Pipeline.Workspace)'
+                  displayName: Restore Pipeline Package
+                - task: Npm@1
+                  displayName: Restore
+                  inputs:
+                    command: "install"
+                    workingDir: "$(Pipeline.Workspace)/src"
+                - task: AzureWebApp@1
+                  inputs:
+                    azureSubscription: "Development-auseast"
+                    appType: "webAppLinux"
+                    appName: "webapp8999"
+                    package: "$(Pipeline.Workspace)/src"
+                    runtimeStack: "NODE|16-lts"
+                  displayName: Deploy
+                - task: PowerShell@2
+                  inputs:
+                    targetType: inline
+                    script: |
+                      $(Pipeline.Workspace)/scripts/check-health.ps1 -siteUrl 'https://webapp8999.azurewebsites.net' -siteWarmUpTime 50 -SiteProbeCoolDown 5
+                    failOnStderr: true
+                  displayName: Test
+
+  - stage: Production
+    dependsOn:
+      - CI
+      - PreProd
+    condition: and(succeeded('CI'), succeeded('PreProd'), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - deployment: Configure_Prod_Env
+        pool:
+          vmImage: "Ubuntu-latest"
+        # creates an environment if it doesn't exist
+        environment: Production
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: NodeTool@0
+                  inputs:
+                    versionSpec: "16.x"
+                  displayName: "Install Node.js"
+                - task: DownloadPipelineArtifact@2
+                  inputs:
+                    buildType: 'current'
+                    artifactName: '$(Build.BuildNumber)'
+                    targetPath: '$(Pipeline.Workspace)'
+                  displayName: Restore Pipeline Package
+                - task: Npm@1
+                  displayName: Restore
+                  inputs:
+                    command: "install"
+                    workingDir: "$(Pipeline.Workspace)/src"
+                - task: AzureWebApp@1
+                  inputs:
+                    azureSubscription: "Production-auseast"
+                    appType: "webAppLinux"
+                    appName: "webappprod"
+                    package: "$(Pipeline.Workspace)/src"
+                    runtimeStack: "NODE|16-lts"
+                  displayName: Deploy
+                - task: PowerShell@2
+                  inputs:
+                    targetType: inline
+                    script: |
+                      $(Pipeline.Workspace)/scripts/check-health.ps1 -siteUrl 'https://webappprod.azurewebsites.net' -siteWarmUpTime 50 -SiteProbeCoolDown 5
+                    failOnStderr: true
+                  displayName: Final Test
